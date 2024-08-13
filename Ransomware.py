@@ -178,7 +178,7 @@ def encryption_interface():
         input("Press Enter to continue...")
 
         clear_screen()
-        print_large_message_in_green("All your files have been encrypted... \naccess itamar to get the password to decrypt!!")
+        print_large_message_in_green("File Encryption Succefull. ")
 
     except Exception as e:
         print(f"An error occurred during encryption: {e}")
